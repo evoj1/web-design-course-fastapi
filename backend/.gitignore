@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.idea/
+.pytest_cache/
+
+uploads/videos/
+uploads/works/
+
+course.db
+
+.env
