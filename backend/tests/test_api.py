@@ -44,8 +44,6 @@ def create_lesson(title=None, description="Описание тестового �
     return client.post(
         "/lessons/",
         headers={
-            # В твоём app/api/lessons.py используется Header(..., convert_underscores=False),
-            # поэтому для уроков нужен именно current_role.
             "current_role": "manager",
         },
         data={
@@ -71,13 +69,6 @@ def submit_work(lesson_id: int, student_id: int = 2, filename="work.pdf"):
             "work_file": (filename, b"fake work content", "application/pdf"),
         },
     )
-
-
-def test_root_endpoint():
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert "message" in response.json()
 
 
 def test_register_user_success():

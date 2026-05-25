@@ -1,17 +1,22 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pathlib import Path
 
-from app.core.database import Base, engine
 from app.api.auth import router as auth_router
 from app.api.lessons import router as lessons_router
-from app.api.works import router as works_router
 from app.api.portfolio import router as portfolio_router
 from app.api.users import router as users_router
+from app.api.works import router as works_router
+from app.core.database import Base, engine
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 Base.metadata.create_all(bind=engine)
+
+
+Path("uploads/videos").mkdir(parents=True, exist_ok=True)
+Path("uploads/works").mkdir(parents=True, exist_ok=True)
+
 
 app = FastAPI(
     title="Онлайн-курс «Основы веб-дизайна и UX/UI»",

@@ -9,54 +9,157 @@ export default function CuratorDashboard({ user }) {
   const [status, setStatus] = useState("completed");
   const [comment, setComment] = useState("Работа выполнена корректно.");
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("info");
+  const [isLoading, setIsLoading] = useState(false);
+
+  function success(text) {
+    setMessageType("success");
+    setMessage(text);
+  }
+
+  function error(text) {
+    setMessageType("error");
+    setMessage(text);
+  }
 
   async function loadWorks() {
-  setWorks(await request("/works/", {
-    headers: {
-      "current-user-id": user.id,
-      "current-role": "curator",
-    },
-  }));
-}
-
-  async function reviewWork(e) {
-  e.preventDefault();
-  setMessage("");
-
-  try {
-    await request("/works/review", {
-      method: "POST",
-      headers: {
-        "current-user-id": user.id,
-        "current-role": "curator",
-      },
-      body: JSON.stringify({
-        work_id: selectedWork.id,
-        status: status,
-        comment: comment,
-      }),
-    });
-
-    setMessage("Оценка сохранена. Статус работы обновлён.");
-    setSelectedWork(null);
-    await loadWorks();
-  } catch (err) {
-    setMessage(err.message);
+    setWorks(
+      await request("/works/", {
+        headers: {
+          "current-user-id": user.id,
+          "current-role": "curator",
+        },
+      })
+    );
   }
-}
+
+  useEffect(() => {
+    loadWorks().catch((err) => error(err.message));
+  }, []);
+
+  async function reviewWork(event) {
+    event.preventDefault();
+    setIsLoading(true);
+
+    try {
+      await request("/works/review", {
+        method: "POST",
+        headers: {
+          "current-user-id": user.id,
+          "current-role": "curator",
+        },
+        body: JSON.stringify({
+          work_id: selectedWork.id,
+          status,
+          comment: comment.trim(),
+        }),
+      });
+
+      setSelectedWork(null);
+      success("Оценка сохранена. Статус работы обновлён.");
+      await loadWorks();
+    } catch (err) {
+      error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function openModal(work) {
+    setSelectedWork(work);
+    setStatus(work.status === "not_completed" ? "not_completed" : "completed");
+    setComment("Работа выполнена корректно.");
+  }
+
+  function getStatusText(value) {
+    if (value === "pending") return "Не оценено";
+    if (value === "completed") return "Выполнено";
+    if (value === "not_completed") return "Не выполнено";
+    return value;
+  }
 
   return (
-    <main className="dashboard">
-      <nav className="sidebar"><a href="#works">Работы студентов</a></nav>
-      <section className="content-grid">
-        <Alert message={message} type={message.includes("сохранена") ? "success" : "error"} />
-        <section className="card wide" id="works">
-          <div className="section-head"><div><h2>Работы студентов</h2><p>Куратор просматривает и оценивает отправленные работы.</p></div><button className="btn btn-light" onClick={loadWorks}>Обновить</button></div>
+    <main className="panel-layout">
+      <aside className="side-menu">
+        <a href="#works">Работы студентов</a>
+      </aside>
+
+      <section className="workspace">
+        <Alert message={message} type={messageType} onClose={() => setMessage("")} />
+
+        <section className="content-card" id="works">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Панель куратора</p>
+              <h2>Работы студентов</h2>
+              <span>Проверка отправленных практических работ.</span>
+            </div>
+
+            <button className="btn btn-muted" onClick={loadWorks}>Обновить</button>
+          </div>
+
           {works.length === 0 && <div className="empty">Нет работ на проверке.</div>}
-          <div className="table">{works.map(w => <div className="table-row" key={w.id}><span>Работа #{w.id}</span><b>Урок #{w.lesson_id}</b><span>Студент #{w.student_id}</span><span className={`status ${w.status}`}>{w.status}</span><button className="btn btn-primary" onClick={()=>setSelectedWork(w)}>Оценить</button></div>)}</div>
+
+          <div className="works-list">
+            {works.map((work) => (
+              <article className="work-item" key={work.id}>
+                <div>
+                  <h3>Работа #{work.id} · Урок #{work.lesson_id}</h3>
+                  <p>Студент #{work.student_id}</p>
+                  <span className="path-label">{work.file_path}</span>
+                </div>
+
+                <span className={`status-badge ${work.status}`}>{getStatusText(work.status)}</span>
+
+                <button className="btn btn-green" onClick={() => openModal(work)}>
+                  Оценить работу
+                </button>
+              </article>
+            ))}
+          </div>
         </section>
       </section>
-      {selectedWork && <Modal title={`Оценить работу #${selectedWork.id}`} onClose={()=>setSelectedWork(null)}><form onSubmit={reviewWork}><div className="info-box"><p><b>Студент:</b> #{selectedWork.student_id}</p><p><b>Урок:</b> #{selectedWork.lesson_id}</p><p><b>Файл:</b> {selectedWork.file_path}</p></div><label>Статус<select value={status} onChange={e=>setStatus(e.target.value)}><option value="completed">Выполнено</option><option value="not_completed">Не выполнено</option></select></label><label>Комментарий<textarea value={comment} onChange={e=>setComment(e.target.value)} /></label><button className="btn btn-primary">Сохранить оценку</button></form></Modal>}
+
+      {selectedWork && (
+        <Modal title={`Оценить работу #${selectedWork.id}`} onClose={() => setSelectedWork(null)}>
+          <form onSubmit={reviewWork}>
+            <div className="review-summary">
+              <p><b>Студент:</b> #{selectedWork.student_id}</p>
+              <p><b>Урок:</b> #{selectedWork.lesson_id}</p>
+              <p><b>Файл:</b> {selectedWork.file_path}</p>
+            </div>
+
+            <label>
+              Статус работы
+              <div className="radio-row">
+                <label className="radio-card">
+                  <input type="radio" checked={status === "completed"} onChange={() => setStatus("completed")} />
+                  Выполнено
+                </label>
+
+                <label className="radio-card">
+                  <input type="radio" checked={status === "not_completed"} onChange={() => setStatus("not_completed")} />
+                  Не выполнено
+                </label>
+              </div>
+            </label>
+
+            <label>
+              Комментарий куратора
+              <textarea value={comment} onChange={(event) => setComment(event.target.value)} required />
+            </label>
+
+            <div className="modal-actions">
+              <button type="button" className="btn btn-muted" onClick={() => setSelectedWork(null)}>
+                Отмена
+              </button>
+              <button className="btn btn-green" disabled={isLoading}>
+                {isLoading ? "Сохранение..." : "Сохранить оценку"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </main>
   );
 }

@@ -8,7 +8,13 @@ import Header from "./components/Header.jsx";
 export default function App() {
   const [user, setUser] = useState(() => {
     const saved = localStorage.getItem("course_user");
-    return saved ? JSON.parse(saved) : null;
+
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      localStorage.removeItem("course_user");
+      return null;
+    }
   });
 
   function handleAuth(userData) {
@@ -21,14 +27,17 @@ export default function App() {
     localStorage.removeItem("course_user");
   }
 
-  if (!user) return <AuthPage onAuth={handleAuth} />;
+  if (!user) {
+    return <AuthPage onAuth={handleAuth} />;
+  }
 
   return (
     <div className="app-shell">
       <Header user={user} onLogout={logout} />
-      {user.role === "student" && <StudentDashboard user={user} />}
-      {user.role === "curator" && <CuratorDashboard user={user} />}
+
       {user.role === "manager" && <ManagerDashboard user={user} />}
+      {user.role === "curator" && <CuratorDashboard user={user} />}
+      {user.role === "student" && <StudentDashboard user={user} />}
     </div>
   );
 }

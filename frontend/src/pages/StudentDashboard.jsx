@@ -1,99 +1,49 @@
 import React, { useEffect, useState } from "react";
-import { request } from "../api/api.js";
+import { API_URL, request } from "../api/api.js";
 import Alert from "../components/Alert.jsx";
 import Modal from "../components/Modal.jsx";
-
-const API_URL = "http://127.0.0.1:8000";
 
 export default function StudentDashboard({ user }) {
   const [page, setPage] = useState("lessons");
   const [lessons, setLessons] = useState([]);
   const [works, setWorks] = useState([]);
   const [portfolio, setPortfolio] = useState([]);
-
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [workFile, setWorkFile] = useState(null);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("info");
+  const [isLoading, setIsLoading] = useState(false);
+
+  function success(text) {
+    setMessageType("success");
+    setMessage(text);
+  }
+
+  function error(text) {
+    setMessageType("error");
+    setMessage(text);
+  }
 
   async function loadLessons() {
     setLessons(await request("/lessons/"));
   }
 
   async function loadWorks() {
-    setWorks(await request("/works/my", {
-      headers: {
-        "current-user-id": user.id,
-      },
-    }));
+    setWorks(await request("/works/my", { headers: { "current-user-id": user.id } }));
   }
-
-  async function updateWork(workId) {
-  setMessage("");
-
-  if (!workFile) {
-    setMessage("Выберите новый файл работы");
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("work_file", workFile);
-
-  const response = await fetch(`${API_URL}/works/${workId}`, {
-    method: "PUT",
-    headers: {
-      "current-user-id": user.id,
-    },
-    body: formData,
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    setMessage(data.detail || "Ошибка изменения работы");
-    return;
-  }
-
-  setMessage("Работа изменена и снова отправлена на проверку.");
-  setWorkFile(null);
-  await loadWorks();
-}
-
-async function deleteWork(workId) {
-  setMessage("");
-
-  if (!confirm("Удалить отправленную работу?")) return;
-
-  try {
-    await request(`/works/${workId}`, {
-      method: "DELETE",
-      headers: {
-        "current-user-id": user.id,
-      },
-    });
-
-    setMessage("Работа удалена.");
-    await loadWorks();
-  } catch (err) {
-    setMessage(err.message);
-  }
-}
 
   async function loadPortfolio() {
-    setPortfolio(await request("/portfolio/", {
-      headers: {
-        "current-user-id": user.id,
-      },
-    }));
+    setPortfolio(await request("/portfolio/", { headers: { "current-user-id": user.id } }));
   }
 
   useEffect(() => {
-    loadLessons().catch(e => setMessage(e.message));
-    loadWorks().catch(e => setMessage(e.message));
-    loadPortfolio().catch(e => setMessage(e.message));
+    loadLessons().catch((err) => error(err.message));
+    loadWorks().catch((err) => error(err.message));
+    loadPortfolio().catch((err) => error(err.message));
   }, []);
 
   function getWorkForLesson(lessonId) {
-    return works.find(work => work.lesson_id === lessonId);
+    return works.find((work) => work.lesson_id === lessonId);
   }
 
   function getStatusText(status) {
@@ -103,14 +53,22 @@ async function deleteWork(workId) {
     return status;
   }
 
-  async function submitWork(e) {
-    e.preventDefault();
-    setMessage("");
+  function canOpenLesson(index) {
+    if (index === 0) return true;
+    const previous = lessons[index - 1];
+    const previousWork = previous ? getWorkForLesson(previous.id) : null;
+    return previousWork?.status === "completed";
+  }
+
+  async function submitWork(event) {
+    event.preventDefault();
 
     if (!workFile) {
-      setMessage("Выберите файл работы");
+      error("Выберите файл работы.");
       return;
     }
+
+    setIsLoading(true);
 
     try {
       const formData = new FormData();
@@ -119,119 +77,157 @@ async function deleteWork(workId) {
 
       const response = await fetch(`${API_URL}/works/`, {
         method: "POST",
-        headers: {
-          "current-user-id": user.id,
-        },
+        headers: { "current-user-id": user.id },
         body: formData,
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Ошибка отправки работы");
+        throw new Error(
+          Array.isArray(data.detail)
+            ? data.detail.map((item) => item.msg).join("; ")
+            : data.detail || "Ошибка отправки работы."
+        );
       }
 
-      setMessage("Работа отправлена на проверку.");
+      setSelectedLesson(null);
       setWorkFile(null);
+      success("Работа отправлена на проверку.");
       await loadWorks();
     } catch (err) {
-      setMessage(err.message);
+      error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function updateWork(workId) {
+    if (!workFile) {
+      error("Выберите новый файл работы.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("work_file", workFile);
+
+      const response = await fetch(`${API_URL}/works/${workId}`, {
+        method: "PUT",
+        headers: { "current-user-id": user.id },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Ошибка изменения работы.");
+      }
+
+      setSelectedLesson(null);
+      setWorkFile(null);
+      success("Работа изменена и снова отправлена на проверку.");
+      await loadWorks();
+    } catch (err) {
+      error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function deleteWork(workId) {
+    if (!confirm("Удалить отправленную работу?")) return;
+
+    try {
+      await request(`/works/${workId}`, {
+        method: "DELETE",
+        headers: { "current-user-id": user.id },
+      });
+
+      setSelectedLesson(null);
+      success("Работа удалена.");
+      await loadWorks();
+    } catch (err) {
+      error(err.message);
     }
   }
 
   async function addToPortfolio(workId) {
-    setMessage("");
+    setIsLoading(true);
 
     try {
       await request(`/portfolio/${workId}`, {
         method: "POST",
-        headers: {
-          "current-user-id": user.id,
-        },
+        headers: { "current-user-id": user.id },
       });
 
-      setMessage("Работа добавлена в портфолио.");
+      setSelectedLesson(null);
+      success("Работа добавлена в портфолио.");
       await loadPortfolio();
       await loadWorks();
     } catch (err) {
-      setMessage(err.message);
+      error(err.message);
+    } finally {
+      setIsLoading(false);
     }
   }
 
   return (
-    <main className="dashboard">
-      <nav className="sidebar">
-        <button
-          className="sidebar-btn"
-          onClick={() => setPage("lessons")}
-        >
+    <main className="panel-layout">
+      <aside className="side-menu">
+        <button className={page === "lessons" ? "active" : ""} onClick={() => setPage("lessons")}>
           Мои уроки
         </button>
-
-        <button
-          className="sidebar-btn"
-          onClick={() => setPage("portfolio")}
-        >
+        <button className={page === "portfolio" ? "active" : ""} onClick={() => setPage("portfolio")}>
           Портфолио
         </button>
-      </nav>
+      </aside>
 
-      <section className="content-grid">
-        <Alert
-          message={message}
-          type={
-            message.includes("добавлена") || message.includes("отправлена")
-              ? "success"
-              : "error"
-          }
-        />
+      <section className="workspace">
+        <Alert message={message} type={messageType} onClose={() => setMessage("")} />
 
         {page === "lessons" && (
-          <section className="card wide">
-            <div className="section-head">
+          <section className="content-card">
+            <div className="section-heading">
               <div>
+                <p className="eyebrow">Панель студента</p>
                 <h2>Мои уроки</h2>
-                <p>Откройте урок, посмотрите видео и отправьте работу.</p>
+                <span>Откройте урок, изучите видео и отправьте практическую работу.</span>
               </div>
 
-              <button className="btn btn-light" onClick={() => {
-                loadLessons();
-                loadWorks();
-              }}>
+              <button className="btn btn-muted" onClick={() => { loadLessons(); loadWorks(); }}>
                 Обновить
               </button>
             </div>
 
-            {lessons.length === 0 && (
-              <div className="empty">Нет доступных уроков.</div>
-            )}
-
-            <div className="lesson-grid">
-              {lessons.map((lesson) => {
+            <div className="lesson-cards">
+              {lessons.map((lesson, index) => {
                 const work = getWorkForLesson(lesson.id);
+                const available = canOpenLesson(index);
 
                 return (
-                  <article className="lesson-card" key={lesson.id}>
-                    <div className="lesson-number">
-                      Урок #{lesson.order_number}
+                  <article className={`lesson-tile ${available ? "" : "locked"}`} key={lesson.id}>
+                    <div className="lesson-topline">
+                      <b>Урок {lesson.order_number}</b>
+                      {!available && <span>🔒</span>}
                     </div>
 
                     <h3>{lesson.title}</h3>
                     <p>{lesson.description}</p>
 
-                    {work ? (
-                      <div className={`status ${work.status}`}>
-                        {getStatusText(work.status)}
-                      </div>
-                    ) : (
-                      <div className="status pending">
-                        Работа не отправлена
-                      </div>
-                    )}
+                    <span className={`status-badge ${work?.status || "available"}`}>
+                      {work ? getStatusText(work.status) : available ? "Доступен" : "Заблокирован"}
+                    </span>
 
                     <button
                       className="btn btn-primary"
-                      onClick={() => setSelectedLesson(lesson)}
+                      disabled={!available}
+                      onClick={() => {
+                        setWorkFile(null);
+                        setSelectedLesson(lesson);
+                      }}
                     >
                       Открыть урок
                     </button>
@@ -243,30 +239,26 @@ async function deleteWork(workId) {
         )}
 
         {page === "portfolio" && (
-          <section className="card wide">
-            <div className="section-head">
+          <section className="content-card">
+            <div className="section-heading">
               <div>
-                <h2>Портфолио</h2>
-                <p>Работы, добавленные после успешного оценивания.</p>
+                <p className="eyebrow">Портфолио</p>
+                <h2>Мои работы</h2>
+                <span>Здесь отображаются работы со статусом «Выполнено».</span>
               </div>
 
-              <button className="btn btn-light" onClick={loadPortfolio}>
-                Обновить
-              </button>
+              <button className="btn btn-muted" onClick={loadPortfolio}>Обновить</button>
             </div>
 
-            {portfolio.length === 0 && (
-              <div className="empty">Портфолио пока пустое.</div>
-            )}
+            {portfolio.length === 0 && <div className="empty">Портфолио пока пустое.</div>}
 
-            <div className="table">
+            <div className="portfolio-grid">
               {portfolio.map((item) => (
-                <div className="table-row four" key={item.id}>
-                  <span>Позиция #{item.id}</span>
-                  <b>Работа #{item.work_id}</b>
-                  <span>Студент #{item.student_id}</span>
-                  <span>{new Date(item.added_at).toLocaleString()}</span>
-                </div>
+                <article className="portfolio-card" key={item.id}>
+                  <small>Позиция #{item.id}</small>
+                  <h3>Работа #{item.work_id}</h3>
+                  <p>Добавлена: {new Date(item.added_at).toLocaleString()}</p>
+                </article>
               ))}
             </div>
           </section>
@@ -276,18 +268,23 @@ async function deleteWork(workId) {
       {selectedLesson && (
         <Modal
           title={selectedLesson.title}
-          onClose={() => setSelectedLesson(null)}
+          size="large"
+          onClose={() => {
+            setSelectedLesson(null);
+            setWorkFile(null);
+          }}
         >
-          <LessonModalContent
+          <LessonModal
             lesson={selectedLesson}
-            updateWork={updateWork}
-            deleteWork={deleteWork}
             work={getWorkForLesson(selectedLesson.id)}
             workFile={workFile}
             setWorkFile={setWorkFile}
             submitWork={submitWork}
+            updateWork={updateWork}
+            deleteWork={deleteWork}
             addToPortfolio={addToPortfolio}
             getStatusText={getStatusText}
+            isLoading={isLoading}
           />
         </Modal>
       )}
@@ -295,7 +292,7 @@ async function deleteWork(workId) {
   );
 }
 
-function LessonModalContent({
+function LessonModal({
   lesson,
   work,
   workFile,
@@ -305,100 +302,67 @@ function LessonModalContent({
   deleteWork,
   addToPortfolio,
   getStatusText,
+  isLoading,
 }) {
-  const videoSrc = `${API_URL}${lesson.video_path}`;
-
   return (
     <div>
-      <div className="video-player-box">
-        <video className="lesson-video" src={videoSrc} controls>
+      <div className="video-frame">
+        <video src={`${API_URL}${lesson.video_path}`} controls>
           Ваш браузер не поддерживает видео.
         </video>
       </div>
 
-      <p>{lesson.description}</p>
+      <p className="lesson-description">{lesson.description}</p>
 
       {!work && (
         <form onSubmit={submitWork}>
           <label>
-            Загрузить практическую работу
-            <input
-              type="file"
-              onChange={(e) => setWorkFile(e.target.files[0])}
-            />
+            Практическая работа
+            <input type="file" onChange={(event) => setWorkFile(event.target.files[0])} required />
           </label>
 
-          {workFile && (
-            <div className="file-selected">
-              Выбран файл: {workFile.name}
-            </div>
-          )}
+          {workFile && <div className="selected-file">Выбран файл: {workFile.name}</div>}
 
-          <button className="btn btn-primary">
-            Отправить работу
-          </button>
+          <div className="modal-actions">
+            <button className="btn btn-primary" disabled={isLoading}>
+              {isLoading ? "Отправка..." : "Добавить на проверку"}
+            </button>
+          </div>
         </form>
       )}
 
       {work && (
-        <div className="work-status-box">
-          <h3>Работа по уроку</h3>
-
-          <p>
-            <b>Файл:</b> {work.file_path}
-          </p>
-
-          <p>
-            <b>Статус:</b>{" "}
-            <span className={`status ${work.status}`}>
-              {getStatusText(work.status)}
-            </span>
-          </p>
+        <div className="work-box">
+          <h3>Практическая работа</h3>
+          <p><b>Файл:</b> {work.file_path}</p>
+          <p><b>Статус:</b> <span className={`status-badge ${work.status}`}>{getStatusText(work.status)}</span></p>
 
           {work.status !== "completed" && (
             <>
               <label>
                 Новый файл работы
-                <input
-                  type="file"
-                  onChange={(e) => setWorkFile(e.target.files[0])}
-                />
+                <input type="file" onChange={(event) => setWorkFile(event.target.files[0])} />
               </label>
 
-              <div className="actions">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => updateWork(work.id)}
-                >
-                  Изменить работу
-                </button>
+              {workFile && <div className="selected-file">Выбран файл: {workFile.name}</div>}
 
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={() => deleteWork(work.id)}
-                >
+              <div className="modal-actions">
+                <button type="button" className="btn btn-muted" onClick={() => deleteWork(work.id)}>
                   Удалить работу
+                </button>
+                <button type="button" className="btn btn-primary" onClick={() => updateWork(work.id)} disabled={isLoading}>
+                  {isLoading ? "Сохранение..." : "Изменить работу"}
                 </button>
               </div>
             </>
           )}
 
           {work.status === "completed" && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => addToPortfolio(work.id)}
-            >
-              Добавить в портфолио
-            </button>
-          )}
-
-          {work.status === "not_completed" && (
-            <p className="hint">
-              Работа оценена как «Не выполнено». Вы можете загрузить исправленный файл.
-            </p>
+            <div className="modal-actions">
+              <button className="btn btn-primary" onClick={() => addToPortfolio(work.id)} disabled={isLoading}>
+                {isLoading ? "Добавление..." : "Добавить в портфолио"}
+              </button>
+            </div>
           )}
         </div>
       )}

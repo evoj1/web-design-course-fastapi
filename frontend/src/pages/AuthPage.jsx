@@ -8,40 +8,135 @@ export default function AuthPage({ onAuth }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  async function submit(e) {
-    e.preventDefault();
+  async function submit(event) {
+    event.preventDefault();
     setMessage("");
+    setIsLoading(true);
+
     try {
-      const user = mode === "register"
-        ? await request("/auth/register", { method: "POST", body: JSON.stringify({ full_name: fullName, email, password }) })
-        : await request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      const user =
+        mode === "register"
+          ? await request("/auth/register", {
+              method: "POST",
+              body: JSON.stringify({
+                full_name: fullName.trim(),
+                email: email.trim(),
+                password,
+              }),
+            })
+          : await request("/auth/login", {
+              method: "POST",
+              body: JSON.stringify({
+                email: email.trim(),
+                password,
+              }),
+            });
+
       onAuth(user);
-    } catch (err) { setMessage(err.message); }
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
-    <main className="auth-layout">
-      <section className="auth-left">
-        <div>Основы UX/UI дизаайна</div>
-        <h1>Основы UX/UI дизаайна</h1>
-        <p>Регистрация, авторизация, уроки, работы студентов, портфолио, оценивание и назначение кураторов.</p>
-        <div className="feature-grid"><div>Студент<span>уроки и портфолио</span></div><div>Куратор<span>оценивание работ</span></div><div>Менеджер<span>уроки и роли</span></div></div>
-      </section>
-      <section className="auth-card">
-        <div className="tabs">
-          <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Вход</button>
-          <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Регистрация</button>
+    <main className="landing-page">
+      <section className="landing-info">
+        <span className="landing-chip">UX/UI COURSE</span>
+        <h1>Основы веб-дизайна и UX/UI</h1>
+        <p>
+          Учебная система для просмотра видеоуроков, отправки практических работ
+          и формирования портфолио студента.
+        </p>
+
+        <div className="landing-points">
+          <div>Просмотр материалов курса</div>
+          <div>Отправка практических работ</div>
+          <div>Проверка работ куратором</div>
+          <div>Формирование портфолио</div>
         </div>
-        <h2>{mode === "login" ? "Авторизация" : "Регистрация"}</h2>
+      </section>
+
+      <section className="auth-panel">
+        <div className="auth-tabs">
+          <button
+            className={mode === "login" ? "active" : ""}
+            onClick={() => {
+              setMode("login");
+              setMessage("");
+            }}
+            type="button"
+          >
+            Вход
+          </button>
+
+          <button
+            className={mode === "register" ? "active" : ""}
+            onClick={() => {
+              setMode("register");
+              setMessage("");
+            }}
+            type="button"
+          >
+            Регистрация
+          </button>
+        </div>
+
+        <h2>{mode === "login" ? "Вход" : "Регистрация"}</h2>
+        <p className="subtle">
+          {mode === "login"
+            ? "Введите данные учётной записи."
+            : "Создайте аккаунт студента для прохождения курса."}
+        </p>
+
+        <Alert message={message} type="error" onClose={() => setMessage("")} />
+
         <form onSubmit={submit}>
-          {mode === "register" && <label>Имя пользователя<input value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>}
-          <label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label>Пароль<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-          <Alert message={message} type="error" />
-          <button className="btn btn-primary" type="submit">{mode === "login" ? "Войти" : "Зарегистрироваться"}</button>
+          {mode === "register" && (
+            <label>
+              Имя
+              <input
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                placeholder="Введите имя"
+                required
+              />
+            </label>
+          )}
+
+          <label>
+            Email
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="example@mail.com"
+              required
+            />
+          </label>
+
+          <label>
+            Пароль
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Введите пароль"
+              required
+            />
+          </label>
+
+          <button className="btn btn-primary btn-full" disabled={isLoading}>
+            {isLoading
+              ? "Подождите..."
+              : mode === "login"
+              ? "Войти"
+              : "Зарегистрироваться"}
+          </button>
         </form>
-        <p className="hint">Новый пользователь получает роль student. Роль curator назначает менеджер.</p>
       </section>
     </main>
   );

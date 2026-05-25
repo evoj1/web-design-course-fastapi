@@ -1,83 +1,103 @@
 import React, { useEffect, useState } from "react";
-import { request } from "../api/api.js";
+import { API_URL, request } from "../api/api.js";
 import Alert from "../components/Alert.jsx";
 import Modal from "../components/Modal.jsx";
-
-const API_URL = "http://127.0.0.1:8000";
 
 export default function ManagerDashboard() {
   const [lessons, setLessons] = useState([]);
   const [users, setUsers] = useState([]);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("info");
+  const [isLoading, setIsLoading] = useState(false);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [editLesson, setEditLesson] = useState(null);
 
   const [title, setTitle] = useState("Урок 1. Основы UX");
-  const [description, setDescription] = useState("Видеоурок по базовым принципам пользовательского опыта.");
+  const [description, setDescription] = useState(
+    "Видеоурок по базовым принципам пользовательского опыта."
+  );
   const [videoFile, setVideoFile] = useState(null);
 
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedRole, setSelectedRole] = useState("curator");
+
+  function success(text) {
+    setMessageType("success");
+    setMessage(text);
+  }
+
+  function error(text) {
+    setMessageType("error");
+    setMessage(text);
+  }
 
   async function loadLessons() {
     setLessons(await request("/lessons/"));
   }
 
   async function loadUsers() {
-      setUsers(await request("/users/students-and-curators", {
+    setUsers(
+      await request("/users/students-and-curators", {
         headers: { "current-role": "manager" },
-      }));
-    }
+      })
+    );
+  }
 
   useEffect(() => {
-    loadLessons().catch(e => setMessage(e.message));
-    loadUsers().catch(e => setMessage(e.message));
+    loadLessons().catch((err) => error(err.message));
+    loadUsers().catch((err) => error(err.message));
   }, []);
 
-  async function createLesson(e) {
-    e.preventDefault();
+  async function createLesson(event) {
+    event.preventDefault();
     setMessage("");
 
     if (!videoFile) {
-      setMessage("Выберите видеофайл");
+      error("Выберите видеофайл.");
       return;
     }
 
+    setIsLoading(true);
+
     try {
       const formData = new FormData();
-      formData.append("title", title);
-      formData.append("description", description);
+      formData.append("title", title.trim());
+      formData.append("description", description.trim());
       formData.append("video_file", videoFile);
 
       const response = await fetch(`${API_URL}/lessons/`, {
         method: "POST",
-        headers: {
-          current_role: "manager",
-        },
+        headers: { current_role: "manager" },
         body: formData,
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Ошибка загрузки видеоурока");
+        throw new Error(
+          Array.isArray(data.detail)
+            ? data.detail.map((item) => item.msg).join("; ")
+            : data.detail || "Ошибка загрузки видеоурока."
+        );
       }
 
-      setMessage("Видеоурок успешно загружен.");
       setShowUploadModal(false);
       setVideoFile(null);
+      success("Видеоурок успешно загружен!");
       await loadLessons();
     } catch (err) {
-      setMessage(err.message);
+      error(err.message);
+    } finally {
+      setIsLoading(false);
     }
   }
 
   async function deleteLesson(id) {
     setMessage("");
 
-    if (!confirm("Удалить этот видеоурок?")) return;
+    if (!confirm("Вы уверены, что хотите удалить этот видеоурок?")) return;
 
     try {
       await request(`/lessons/${id}`, {
@@ -85,16 +105,17 @@ export default function ManagerDashboard() {
         headers: { current_role: "manager" },
       });
 
-      setMessage("Видеоурок успешно удалён.");
+      success("Видеоурок успешно удалён!");
       await loadLessons();
     } catch (err) {
-      setMessage(err.message);
+      error(err.message);
     }
   }
 
-  async function updateLesson(e) {
-    e.preventDefault();
+  async function updateLesson(event) {
+    event.preventDefault();
     setMessage("");
+    setIsLoading(true);
 
     try {
       await request(`/lessons/${editLesson.id}`, {
@@ -108,208 +129,179 @@ export default function ManagerDashboard() {
         }),
       });
 
-      setMessage("Изменения успешно сохранены.");
       setEditLesson(null);
+      success("Изменения успешно сохранены!");
       await loadLessons();
     } catch (err) {
-      setMessage(err.message);
+      error(err.message);
+    } finally {
+      setIsLoading(false);
     }
   }
 
-  async function changeRole(e) {
-  e.preventDefault();
-  setMessage("");
+  async function changeRole(event) {
+    event.preventDefault();
+    setMessage("");
 
-  if (!selectedUserId) {
-    setMessage("Выберите пользователя");
-    return;
+    if (!selectedUserId) {
+      error("Заполните все обязательные поля.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      await request("/users/change-role", {
+        method: "POST",
+        headers: { "current-role": "manager" },
+        body: JSON.stringify({
+          user_id: Number(selectedUserId),
+          role: selectedRole,
+        }),
+      });
+
+      setShowRoleModal(false);
+      setSelectedUserId("");
+      setSelectedRole("curator");
+      success(
+        selectedRole === "curator"
+          ? "Куратор успешно назначен!"
+          : "Роль пользователя успешно изменена!"
+      );
+      await loadUsers();
+    } catch (err) {
+      error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   }
-
-  const body = {
-    user_id: Number(selectedUserId),
-    role: selectedRole,
-  };
-
-  console.log("change-role body:", body);
-
-  try {
-    await request("/users/change-role", {
-      method: "POST",
-      headers: {
-        "current-role": "manager",
-      },
-      body: JSON.stringify({
-        user_id: Number(selectedUserId),
-        role: selectedRole,
-      }),
-    });
-
-    setMessage("Роль пользователя успешно изменена.");
-    setSelectedUserId("");
-    setSelectedRole("curator");
-    setShowRoleModal(false);
-    await loadUsers();
-  } catch (err) {
-    setMessage(err.message);
-  }
-}
 
   return (
-    <main className="dashboard">
-      <nav className="sidebar">
-        <button className="sidebar-btn" onClick={() => setShowUploadModal(true)}>
-          Загрузить видеоурок
-        </button>
+    <main className="panel-layout">
+      <aside className="side-menu">
+        <button onClick={() => setShowUploadModal(true)}>Загрузить видеоурок</button>
+        <button onClick={() => setShowRoleModal(true)}>Назначить куратора</button>
+        <a href="#lessons">Загруженные материалы</a>
+      </aside>
 
-        <button className="sidebar-btn" onClick={() => setShowRoleModal(true)}>
-          Назначить куратора
-        </button>
+      <section className="workspace">
+        <Alert message={message} type={messageType} onClose={() => setMessage("")} />
 
-        <a href="#lessons">Материалы</a>
-      </nav>
-
-      <section className="content-grid">
-        <Alert
-          message={message}
-          type={message.includes("успеш") || message.includes("сохран") || message.includes("изменена") ? "success" : "error"}
-        />
-
-        <section className="card wide" id="lessons">
-          <div className="section-head">
+        <section className="content-card" id="lessons">
+          <div className="section-heading">
             <div>
+              <p className="eyebrow">Панель менеджера</p>
               <h2>Загруженные материалы</h2>
-              <p>Список видеоуроков.</p>
+              <span>Список видеоуроков, доступных студентам.</span>
             </div>
 
-            <button className="btn btn-light" onClick={loadLessons}>
+            <button className="btn btn-muted" onClick={loadLessons}>
               Обновить
             </button>
           </div>
 
-          {lessons.length === 0 && (
-            <div className="empty">Уроков пока нет.</div>
-          )}
+          {lessons.length === 0 && <div className="empty">Уроков пока нет.</div>}
 
-          <div className="table">
+          <div className="manager-list">
             {lessons.map((lesson) => (
-              <div className="table-row" key={lesson.id}>
-                <span>#{lesson.id}</span>
-                <b>{lesson.title}</b>
-                <span>Порядок: {lesson.order_number}</span>
-                <span>{lesson.video_path}</span>
+              <article className="manager-item" key={lesson.id}>
+                <div>
+                  <small>Урок #{lesson.order_number}</small>
+                  <h3>{lesson.title}</h3>
+                  <p>{lesson.description}</p>
+                  <span className="path-label">{lesson.video_path}</span>
+                </div>
 
-                <div className="actions">
-                  <button
-                    className="btn btn-light"
-                    onClick={() => setEditLesson({ ...lesson })}
-                  >
+                <div className="item-actions">
+                  <button className="btn btn-muted" onClick={() => setEditLesson({ ...lesson })}>
                     Изменить
                   </button>
-
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => deleteLesson(lesson.id)}
-                  >
+                  <button className="btn btn-danger" onClick={() => deleteLesson(lesson.id)}>
                     Удалить
                   </button>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         </section>
       </section>
 
       {showUploadModal && (
-        <Modal
-          title="Загрузить видеоурок"
-          onClose={() => setShowUploadModal(false)}
-        >
+        <Modal title="Загрузить видеоурок" onClose={() => setShowUploadModal(false)}>
           <form onSubmit={createLesson}>
             <label>
-              Название
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
+              Название ролика
+              <input value={title} onChange={(event) => setTitle(event.target.value)} required />
             </label>
 
             <label>
-              Описание
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
+              Краткое описание
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
             </label>
 
             <label>
               Видеофайл
-              <input
-                type="file"
-                accept="video/*"
-                onChange={(e) => setVideoFile(e.target.files[0])}
-              />
+              <input type="file" accept="video/*" onChange={(event) => setVideoFile(event.target.files[0])} required />
             </label>
 
-            <button className="btn btn-primary">
-              Загрузить
-            </button>
+            {videoFile && <div className="selected-file">Выбран файл: {videoFile.name}</div>}
+
+            <div className="modal-actions">
+              <button type="button" className="btn btn-muted" onClick={() => setShowUploadModal(false)}>
+                Отмена
+              </button>
+              <button className="btn btn-primary" disabled={isLoading}>
+                {isLoading ? "Загрузка..." : "Загрузить"}
+              </button>
+            </div>
           </form>
         </Modal>
       )}
 
       {showRoleModal && (
-        <Modal
-          title="Управление ролью пользователя"
-          onClose={() => setShowRoleModal(false)}
-        >
+        <Modal title="Назначить куратора" onClose={() => setShowRoleModal(false)}>
           <form onSubmit={changeRole}>
             <label>
-              Пользователь
-              <select
-                value={selectedUserId}
-                onChange={(e) => setSelectedUserId(e.target.value)}
-              >
+              Выберите пользователя
+              <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} required>
                 <option value="">Выберите пользователя</option>
-
                 {users.map((user) => (
                   <option value={user.id} key={user.id}>
-                    #{user.id} · {user.full_name} · {user.email} · {user.role}
+                    {user.full_name} · {user.email} · {user.role}
                   </option>
                 ))}
               </select>
             </label>
 
             <label>
-              Новая роль
-              <select
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-              >
-                <option value="student">Студент</option>
+              Роль
+              <select value={selectedRole} onChange={(event) => setSelectedRole(event.target.value)}>
                 <option value="curator">Куратор</option>
+                <option value="student">Студент</option>
               </select>
             </label>
 
-            <button className="btn btn-primary">
-              Сохранить роль
-            </button>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-muted" onClick={() => setShowRoleModal(false)}>
+                Отмена
+              </button>
+              <button className="btn btn-primary" disabled={isLoading}>
+                {isLoading ? "Сохранение..." : "Подтвердить"}
+              </button>
+            </div>
           </form>
         </Modal>
       )}
 
       {editLesson && (
-        <Modal
-          title={`Изменить урок #${editLesson.id}`}
-          onClose={() => setEditLesson(null)}
-        >
+        <Modal title="Изменить видеоурок" onClose={() => setEditLesson(null)}>
           <form onSubmit={updateLesson}>
             <label>
               Название
               <input
                 value={editLesson.title}
-                onChange={(e) =>
-                  setEditLesson({ ...editLesson, title: e.target.value })
-                }
+                onChange={(event) => setEditLesson({ ...editLesson, title: event.target.value })}
+                required
               />
             </label>
 
@@ -317,9 +309,8 @@ export default function ManagerDashboard() {
               Описание
               <textarea
                 value={editLesson.description}
-                onChange={(e) =>
-                  setEditLesson({ ...editLesson, description: e.target.value })
-                }
+                onChange={(event) => setEditLesson({ ...editLesson, description: event.target.value })}
+                required
               />
             </label>
 
@@ -327,9 +318,8 @@ export default function ManagerDashboard() {
               Путь к видео
               <input
                 value={editLesson.video_path}
-                onChange={(e) =>
-                  setEditLesson({ ...editLesson, video_path: e.target.value })
-                }
+                onChange={(event) => setEditLesson({ ...editLesson, video_path: event.target.value })}
+                required
               />
             </label>
 
@@ -338,15 +328,19 @@ export default function ManagerDashboard() {
               <input
                 type="number"
                 value={editLesson.order_number}
-                onChange={(e) =>
-                  setEditLesson({ ...editLesson, order_number: e.target.value })
-                }
+                onChange={(event) => setEditLesson({ ...editLesson, order_number: event.target.value })}
+                required
               />
             </label>
 
-            <button className="btn btn-primary">
-              Сохранить изменения
-            </button>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-muted" onClick={() => setEditLesson(null)}>
+                Отмена
+              </button>
+              <button className="btn btn-primary" disabled={isLoading}>
+                {isLoading ? "Сохранение..." : "Сохранить изменения"}
+              </button>
+            </div>
           </form>
         </Modal>
       )}
